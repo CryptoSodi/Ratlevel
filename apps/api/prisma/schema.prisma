@@ -1,0 +1,323 @@
+// RatLevel backend schema — mirrors packages/domain/src/*.ts. Postgres-hosted
+// (Vercel serverless functions have no persistent disk, so SQLite can't be
+// used once deployed) — same connection string shape works for Vercel
+// Postgres, Neon, Supabase, or any standard Postgres provider.
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers local dev; the rhel-openssl targets cover Vercel's
+  // serverless function runtime, which can differ subtly from its build
+  // container — a well-documented Prisma+Vercel gotcha if omitted.
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "rhel-openssl-1.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Gym ----------
+
+model Gym {
+  id              String  @id @default(cuid())
+  name            String
+  city            String
+  latitude        Float
+  longitude       Float
+  geofenceRadiusM Int
+  entryQrCode     String  @unique
+  comfortCapacity Int
+  openNow         Boolean @default(true)
+
+  players       Player[]
+  memberships   Membership[]
+  checkIns      CheckIn[]
+  classes       GymClass[]
+  programs      Program[]
+  announcements Announcement[]
+  adminNotifs   AdminNotification[]
+}
+
+// ---------- Auth ----------
+// Enums are plain Strings — SQLite has no native enum type. Valid values are
+// enforced at the Zod validation layer (src/lib/schemas.ts), which mirrors
+// the union types in @ratlevel/domain (StaffRole, PlayerClass, etc).
+
+model StaffAccount {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  // Password login is dev/testing-only in production (see routes/auth.ts) — kept for local use.
+  passwordHash String?
+  googleId     String?  @unique
+  role         String   @default("frontdesk")
+  active       Boolean  @default(true)
+  lastActiveAt DateTime @default(now())
+}
+
+// ---------- Player (member) ----------
+
+model Player {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  // Google-authenticated members have no password; kept for the dev-only test login.
+  passwordHash    String?
+  googleId        String?  @unique
+  name            String
+  title           String   @default("Iron Initiate")
+  playerClass     String   @default("Vanguard")
+  gymId           String
+  gym             Gym      @relation(fields: [gymId], references: [id])
+  totalXp         Int      @default(0)
+  seasonXp        Int      @default(0)
+  streakDays      Int      @default(0)
+  longestStreak   Int      @default(0)
+  personalRecords Int      @default(0)
+  whatsappNumber  String?
+  joinedAt        DateTime @default(now())
+
+  units              String  @default("metric")
+  workoutReminders   Boolean @default(true)
+  questAlerts        Boolean @default(true)
+  leaderboardVisible Boolean @default(true)
+
+  strength    Float @default(20)
+  endurance   Float @default(20)
+  power       Float @default(20)
+  speed       Float @default(20)
+  discipline  Float @default(20)
+  consistency Float @default(20)
+  recovery    Float @default(20)
+
+  membership        Membership?
+  checkIns          CheckIn[]
+  workoutLogs       WorkoutLog[]
+  quests            Quest[]
+  achievements      PlayerAchievement[]
+  challenges        ChallengeParticipant[]
+  bodyMetrics       BodyMetricEntry[]
+  notifications     MemberNotification[]
+  assignedProgramId String?
+}
+
+model Membership {
+  id             String    @id @default(cuid())
+  playerId       String    @unique
+  player         Player    @relation(fields: [playerId], references: [id])
+  gymId          String
+  gym            Gym       @relation(fields: [gymId], references: [id])
+  plan           String    @default("Core")
+  status         String    @default("active")
+  cardNumber     String
+  memberSince    DateTime  @default(now())
+  monthlyFee     Int
+  feeDueAt       DateTime
+  reminderSentAt DateTime?
+}
+
+// ---------- Attendance ----------
+
+model CheckIn {
+  id       String   @id @default(cuid())
+  playerId String
+  player   Player   @relation(fields: [playerId], references: [id])
+  gymId    String
+  gym      Gym      @relation(fields: [gymId], references: [id])
+  at       DateTime @default(now())
+  method   String
+
+  @@index([gymId, at])
+  @@index([playerId, at])
+}
+
+// ---------- Workouts ----------
+
+model Exercise {
+  id          String  @id
+  name        String
+  muscleGroup String
+  equipment   String
+  isCompound  Boolean
+}
+
+model WorkoutTemplate {
+  id               String @id @default(cuid())
+  name             String
+  focus            String
+  exerciseIds      String // JSON string array
+  estimatedMinutes Int
+}
+
+model WorkoutLog {
+  id            String   @id @default(cuid())
+  playerId      String
+  player        Player   @relation(fields: [playerId], references: [id])
+  name          String
+  performedAt   DateTime @default(now())
+  durationMin   Int
+  entries       String // JSON: WorkoutExerciseEntry[]
+  totalVolumeKg Float
+  totalSets     Int
+  xpAwarded     Int
+  prCount       Int
+
+  @@index([playerId, performedAt])
+}
+
+// ---------- Gamification ----------
+
+model Quest {
+  id          String   @id @default(cuid())
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id])
+  scope       String
+  title       String
+  description String
+  metric      String
+  target      Int
+  progress    Int      @default(0)
+  xp          Int
+  completed   Boolean  @default(false)
+  claimed     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([playerId])
+}
+
+model AchievementDefinition {
+  id          String @id
+  title       String
+  description String
+  icon        String
+  tier        String
+  metric      String
+  threshold   Int
+  badgeXp     Int
+
+  unlocks PlayerAchievement[]
+}
+
+model PlayerAchievement {
+  id            String                @id @default(cuid())
+  playerId      String
+  player        Player                @relation(fields: [playerId], references: [id])
+  achievementId String
+  achievement   AchievementDefinition @relation(fields: [achievementId], references: [id])
+  unlockedAt    DateTime?
+
+  @@unique([playerId, achievementId])
+}
+
+model Challenge {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  metric      String
+  goal        Int
+  endsAt      DateTime
+  rewardXp    Int
+  rewardLabel String
+
+  participants ChallengeParticipant[]
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id])
+  playerId    String
+  player      Player    @relation(fields: [playerId], references: [id])
+  progress    Int       @default(0)
+  joined      Boolean   @default(false)
+
+  @@unique([challengeId, playerId])
+}
+
+model Season {
+  id       String   @id @default(cuid())
+  number   Int
+  name     String
+  startsAt DateTime
+  endsAt   DateTime
+}
+
+model BodyMetricEntry {
+  id         String   @id @default(cuid())
+  playerId   String
+  player     Player   @relation(fields: [playerId], references: [id])
+  recordedAt DateTime @default(now())
+  weightKg   Float
+  chestCm    Float?
+  waistCm    Float?
+  armCm      Float?
+
+  @@index([playerId, recordedAt])
+}
+
+// ---------- Notifications ----------
+
+model MemberNotification {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id])
+  type      String
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+  read      Boolean  @default(false)
+
+  @@index([playerId, createdAt])
+}
+
+model AdminNotification {
+  id         String   @id @default(cuid())
+  gymId      String
+  gym        Gym      @relation(fields: [gymId], references: [id])
+  type       String
+  memberId   String?
+  memberName String?
+  title      String
+  body       String
+  createdAt  DateTime @default(now())
+  read       Boolean  @default(false)
+
+  @@index([gymId, createdAt])
+}
+
+// ---------- Portal: classes, programs, announcements ----------
+
+model GymClass {
+  id          String @id @default(cuid())
+  gymId       String
+  gym         Gym    @relation(fields: [gymId], references: [id])
+  name        String
+  coachName   String
+  weekday     Int
+  startTime   String
+  durationMin Int
+  capacity    Int
+  booked      Int    @default(0)
+  location    String
+}
+
+model Program {
+  id          String @id @default(cuid())
+  gymId       String
+  gym         Gym    @relation(fields: [gymId], references: [id])
+  name        String
+  focus       String
+  weeks       Int
+  templateIds String // JSON string array
+}
+
+model Announcement {
+  id           String    @id @default(cuid())
+  gymId        String
+  gym          Gym       @relation(fields: [gymId], references: [id])
+  title        String
+  body         String
+  audience     String
+  status       String
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+}

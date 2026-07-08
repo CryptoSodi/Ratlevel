@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "RatLevel",
+    "slug": "ratlevel",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "ratlevel",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ratlevel.app"
+    },
+    "android": {
+      "package": "com.ratlevel.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0D1117"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "RatLevel uses the camera to scan the gym entry QR code."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "RatLevel uses your location to check you in automatically when you arrive at your gym."
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
+  }
+}

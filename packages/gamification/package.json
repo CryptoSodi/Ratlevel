@@ -1,0 +1,16 @@
+{
+  "name": "@ratlevel/gamification",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ratlevel/domain": "*"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
